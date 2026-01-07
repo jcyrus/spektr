@@ -58,7 +58,8 @@ irm https://raw.githubusercontent.com/jcyrus/spektr/main/install.ps1 | iex
 **Homebrew:**
 
 ```bash
-brew install jcyrus/tap/spektr
+brew tap jcyrus/tap
+brew install spektr
 
 ```
 
