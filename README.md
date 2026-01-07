@@ -29,6 +29,9 @@ Built in **Rust** 🦀, it is multi-threaded, memory-safe, and designed to handl
 - **Mission Control TUI:** A beautiful 3-pane interface built with `ratatui`.
 - **Smart Detection:** Context-aware scanning (only deletes `node_modules` if `package.json` exists).
 - **Safety First:** "Dry Run" by default. Confirmation modals prevent accidental nukes.
+
+> [!CAUTION] > **Use responsibly.** Running this tool on your root directory (`/` or `C:\`) is NOT recommended. While SPEKTR detects projects safely, accidental deletion of critical system files is always a risk with any cleaning tool. Stick to your development workspaces (e.g., `~/code`, `~/projects`).
+
 - **Developer Focused:** Filter by project type (Node, Rust, Flutter, Android).
 - **Deep Clean:** Handles nested monorepos and workspaces with ease.
 
@@ -39,14 +42,14 @@ Built in **Rust** 🦀, it is multi-threaded, memory-safe, and designed to handl
 **macOS / Linux:**
 
 ```bash
-curl -sL [https://raw.githubusercontent.com/jcyrus/spektr/main/install.sh](https://raw.githubusercontent.com/jcyrus/spektr/main/install.sh) | bash
+curl -sL https://raw.githubusercontent.com/jcyrus/spektr/main/install.sh | bash
 
 ```
 
 **Windows (PowerShell):**
 
 ```powershell
-irm [https://raw.githubusercontent.com/jcyrus/spektr/main/install.ps1](https://raw.githubusercontent.com/jcyrus/spektr/main/install.ps1) | iex
+irm https://raw.githubusercontent.com/jcyrus/spektr/main/install.ps1 | iex
 
 ```
 
@@ -62,7 +65,7 @@ brew install jcyrus/tap/spektr
 **Scoop (Windows):**
 
 ```bash
-scoop bucket add jcyrus [https://github.com/jcyrus/scoop-bucket](https://github.com/jcyrus/scoop-bucket)
+scoop bucket add jcyrus https://github.com/jcyrus/scoop-bucket
 scoop install spektr
 
 ```
@@ -70,7 +73,7 @@ scoop install spektr
 ### From Source (Rust)
 
 ```bash
-git clone [https://github.com/jcyrus/spektr](https://github.com/jcyrus/spektr)
+git clone https://github.com/jcyrus/spektr
 cd spektr
 cargo install --path .
 
