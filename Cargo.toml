@@ -1,11 +1,12 @@
 [package]
 name = "spektr"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["JCyrus"]
 description = "A blazing-fast TUI utility for cleaning development artifacts"
 license = "MIT"
 repository = "https://github.com/jcyrus/spektr"
+homepage = "https://github.com/jcyrus/spektr"
 keywords = ["cli", "tui", "developer-tools", "cleanup"]
 categories = ["command-line-utilities", "development-tools"]
 
@@ -13,6 +14,7 @@ categories = ["command-line-utilities", "development-tools"]
 # TUI Framework
 ratatui = "0.29"
 crossterm = "0.28"
+rayon = "1.8"
 
 # File System
 jwalk = "0.8"

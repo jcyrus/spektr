@@ -1,3 +1,4 @@
+mod tree;
 mod app_state;
 mod events;
 mod layout;
@@ -19,7 +20,9 @@ use std::{
 };
 use crate::scanner::ScanEvent;
 
-pub fn run_tui(rx: Receiver<ScanEvent>) -> Result<AppState> {
+use std::path::PathBuf;
+
+pub fn run_tui(rx: Receiver<ScanEvent>, scan_path: PathBuf) -> Result<AppState> {
     // Setup terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -27,16 +30,19 @@ pub fn run_tui(rx: Receiver<ScanEvent>) -> Result<AppState> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let mut state = AppState::new();
+    let mut state = AppState::new(scan_path);
     let mut should_quit = false;
 
     // Main event loop
     while !should_quit {
-        // Check for scan events (non-blocking)
-        if let Ok(scan_event) = rx.try_recv() {
+        // Check for scan events (non-blocking) - Drain all pending events to avoid lag
+        while let Ok(scan_event) = rx.try_recv() {
             match scan_event {
                 ScanEvent::ProjectFound(project) => {
                     state.add_project(project);
+                }
+                ScanEvent::Scanning(path) => {
+                    state.scanning_path = path;
                 }
                 ScanEvent::Complete => {
                     state.finish_scan();
@@ -56,6 +62,9 @@ pub fn run_tui(rx: Receiver<ScanEvent>) -> Result<AppState> {
                 widgets::render_confirmation_modal(f, &state);
             }
         })?;
+
+        // Update spinner (simple ticker)
+        state.spinner_index = state.spinner_index.wrapping_add(1);
 
         // Handle input
         if let Some(app_event) = poll_event(Duration::from_millis(100))? {
@@ -88,6 +97,8 @@ pub fn run_tui(rx: Receiver<ScanEvent>) -> Result<AppState> {
                     }
                     AppEvent::ToggleSort => state.toggle_sort(),
                     AppEvent::CycleFilter => state.cycle_filter(),
+                    AppEvent::ToggleViewMode => state.toggle_view_mode(),
+                    AppEvent::ToggleExpand => state.toggle_expand(),
                     _ => {}
                 }
             }

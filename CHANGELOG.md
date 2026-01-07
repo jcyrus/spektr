@@ -16,6 +16,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Docker/container artifact cleaning
 - Statistics dashboard (space saved over time)
 
+## [0.1.1] - 2026-01-08
+
+### Added
+
+- **Tree View Mode**
+  - Visual hierarchy with guide characters (`│`, `├─`, `└─`)
+  - Press `Tab` to toggle between List and Tree views
+  - Nested project display for monorepos/workspaces
+  - Parent-child selection propagation (selecting parent selects all children)
+  - Expand/collapse nodes with `→` or `l` key
+
+### Fixed
+
+- **Security Hardening**
+  - Replaced panic-prone `.unwrap()` / `.expect()` with proper `Result` handling
+  - Expanded `.gitignore` to prevent accidental commit of IDE/OS files
+
+### Changed
+
+- **Code Quality**
+  - Resolved all `cargo clippy` warnings
+  - Refactored conversational comments to professional documentation
+  - Added `homepage` field to `Cargo.toml` metadata
+
 ## [0.1.0] - 2026-01-07
 
 ### Added
@@ -76,5 +100,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Minimum Rust version: 1.70+
 - Supported platforms: Linux (x86_64, ARM64), macOS (Intel, Apple Silicon), Windows (x86_64)
 
-[Unreleased]: https://github.com/jcyrus/spektr/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/jcyrus/spektr/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/jcyrus/spektr/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/jcyrus/spektr/releases/tag/v0.1.0

@@ -1,7 +1,7 @@
 mod scanner;
 mod tui;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
 use scanner::{Scanner, ScanEvent};
 use scanner::strategy::default_strategies;
@@ -48,9 +48,12 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-    let scan_path = cli
-        .path
-        .unwrap_or_else(|| env::current_dir().expect("Failed to get current directory"));
+    let scan_path = match cli.path {
+        Some(path) => path,
+        None => env::current_dir().context("Failed to get current directory")?,
+    };
+
+
 
     match cli.mode {
         Mode::Scan => run_scan_mode(&scan_path),
@@ -58,13 +61,13 @@ fn main() -> Result<()> {
     }
 }
 
-fn run_scan_mode(scan_path: &PathBuf) -> Result<()> {
+fn run_scan_mode(scan_path: &std::path::Path) -> Result<()> {
     println!("🔍 SPEKTR - Scanning: {}", scan_path.display());
     println!();
 
     let (tx, rx) = mpsc::channel();
     let tx_clone = tx.clone();
-    let scan_path_clone = scan_path.clone();
+    let scan_path_clone = scan_path.to_path_buf();
 
     let handle = thread::spawn(move || {
         let scanner = Scanner::new(default_strategies());
@@ -96,11 +99,15 @@ fn run_scan_mode(scan_path: &PathBuf) -> Result<()> {
                     format_size(project.total_size)
                 );
             }
+            ScanEvent::Scanning(_) => {} // Ignore progress in simple scan mode
             ScanEvent::Complete => break,
         }
     }
 
-    handle.join().unwrap()?;
+    // Handle thread panic safely
+    handle.join()
+        .map_err(|_| anyhow::anyhow!("Scanner thread panicked"))?
+        .context("Scanning failed")?;
 
     println!();
     println!("✅ Scan Complete!");
@@ -110,9 +117,9 @@ fn run_scan_mode(scan_path: &PathBuf) -> Result<()> {
     Ok(())
 }
 
-fn run_tui_mode(scan_path: &PathBuf, _dry_run: bool) -> Result<()> {
+fn run_tui_mode(scan_path: &std::path::Path, _dry_run: bool) -> Result<()> {
     let (tx, rx) = mpsc::channel();
-    let scan_path_clone = scan_path.clone();
+    let scan_path_clone = scan_path.to_path_buf();
 
     // Spawn scanner in background thread
     thread::spawn(move || {
@@ -121,7 +128,7 @@ fn run_tui_mode(scan_path: &PathBuf, _dry_run: bool) -> Result<()> {
     });
 
     // Run TUI (blocks until user quits)
-    let final_state = tui::run_tui(rx)?;
+    let final_state = tui::run_tui(rx, scan_path.to_path_buf())?;
 
     // Handle deletion if user confirmed
     if final_state.deletion_confirmed {

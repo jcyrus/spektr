@@ -6,8 +6,10 @@ pub enum RiskLevel {
     /// Safe to delete, can be rebuilt easily (e.g., node_modules, target)
     Low,
     /// Cache directories, may slow down next build
+    #[allow(dead_code)]
     Medium,
     /// Configuration or state files, requires caution
+    #[allow(dead_code)]
     High,
 }
 
@@ -27,6 +29,7 @@ pub trait CleaningStrategy: Send + Sync {
     fn risk_level(&self) -> RiskLevel;
 
     /// Optional: estimate rebuild time as a string
+    #[allow(dead_code)]
     fn rebuild_estimate(&self) -> &str {
         "~1-3 mins"
     }
