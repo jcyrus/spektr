@@ -6,7 +6,7 @@
   "architecture": {
     "64bit": {
       "url": "https://github.com/jcyrus/spektr/releases/download/v0.1.0/spektr-v0.1.0-x86_64-pc-windows-msvc.zip",
-      "hash": "REPLACE_WITH_ACTUAL_SHA256",
+      "hash": "efb8f440e67fcd7b4f57ace7fc7a815eb2852b0ed8027b361b1d48bf30c64617",
       "bin": "spektr.exe"
     }
   },
