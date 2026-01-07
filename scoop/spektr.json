@@ -1,23 +1,23 @@
 {
-    "version": "0.1.0",
-    "description": "Blazing-fast TUI utility for cleaning development artifacts",
-    "homepage": "https://github.com/jcyrus/spektr",
-    "license": "MIT",
-    "architecture": {
-        "64bit": {
-            "url": "https://github.com/jcyrus/spektr/releases/download/v0.1.0/spektr-0.1.0-x86_64-pc-windows-msvc.zip",
-            "hash": "REPLACE_WITH_ACTUAL_SHA256",
-            "bin": "spektr.exe"
-        }
-    },
-    "checkver": {
-        "github": "https://github.com/jcyrus/spektr"
-    },
-    "autoupdate": {
-        "architecture": {
-            "64bit": {
-                "url": "https://github.com/jcyrus/spektr/releases/download/v$version/spektr-$version-x86_64-pc-windows-msvc.zip"
-            }
-        }
+  "version": "0.1.0",
+  "description": "Blazing-fast TUI utility for cleaning development artifacts",
+  "homepage": "https://github.com/jcyrus/spektr",
+  "license": "MIT",
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/jcyrus/spektr/releases/download/v0.1.0/spektr-v0.1.0-x86_64-pc-windows-msvc.zip",
+      "hash": "REPLACE_WITH_ACTUAL_SHA256",
+      "bin": "spektr.exe"
     }
+  },
+  "checkver": {
+    "github": "https://github.com/jcyrus/spektr"
+  },
+  "autoupdate": {
+    "architecture": {
+      "64bit": {
+        "url": "https://github.com/jcyrus/spektr/releases/download/v$version/spektr-v$version-x86_64-pc-windows-msvc.zip"
+      }
+    }
+  }
 }
