@@ -5,61 +5,32 @@ on:
     tags:
       - "v*"
 
+permissions:
+  contents: write
+
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  create-release:
-    name: Create Release
-    runs-on: ubuntu-latest
-    outputs:
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
-      version: ${{ steps.get_version.outputs.version }}
-    steps:
-      - name: Get version from tag
-        id: get_version
-        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
-
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref }}
-          draft: false
-          prerelease: false
-
-  build:
+  build_and_release:
     name: Build ${{ matrix.target }}
-    needs: create-release
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          # Linux x86_64
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
             archive: tar.gz
-
-          # Linux ARM64
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
             archive: tar.gz
-
-          # macOS x86_64
           - target: x86_64-apple-darwin
             os: macos-latest
             archive: tar.gz
-
-          # macOS ARM64 (Apple Silicon)
           - target: aarch64-apple-darwin
             os: macos-latest
             archive: tar.gz
-
-          # Windows x86_64
           - target: x86_64-pc-windows-msvc
             os: windows-latest
             archive: zip
@@ -86,38 +57,28 @@ jobs:
 
       - name: Create archive (Unix)
         if: matrix.archive == 'tar.gz'
+        shell: bash
         run: |
           cd target/${{ matrix.target }}/release
-          tar -czf ../../../spektr-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.tar.gz spektr
+          tar -czf ../../../spektr-${{ github.ref_name }}-${{ matrix.target }}.tar.gz spektr
           cd -
-          sha256sum spektr-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.tar.gz > spektr-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.tar.gz.sha256
+          sha256sum spektr-${{ github.ref_name }}-${{ matrix.target }}.tar.gz > spektr-${{ github.ref_name }}-${{ matrix.target }}.tar.gz.sha256
 
       - name: Create archive (Windows)
         if: matrix.archive == 'zip'
         shell: pwsh
         run: |
           cd target/${{ matrix.target }}/release
-          Compress-Archive -Path spektr.exe -DestinationPath ../../../spektr-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.zip
+          Compress-Archive -Path spektr.exe -DestinationPath ../../../spektr-${{ github.ref_name }}-${{ matrix.target }}.zip
           cd -
-          $hash = Get-FileHash spektr-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.zip -Algorithm SHA256
-          "$($hash.Hash)  spektr-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.zip" | Out-File -FilePath spektr-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.zip.sha256 -Encoding ASCII
+          $hash = Get-FileHash spektr-${{ github.ref_name }}-${{ matrix.target }}.zip -Algorithm SHA256
+          "$($hash.Hash)  spektr-${{ github.ref_name }}-${{ matrix.target }}.zip" | Out-File -FilePath spektr-${{ github.ref_name }}-${{ matrix.target }}.zip.sha256 -Encoding ASCII
 
-      - name: Upload archive
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Release
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
         with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ./spektr-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.${{ matrix.archive }}
-          asset_name: spektr-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.${{ matrix.archive }}
-          asset_content_type: application/octet-stream
-
-      - name: Upload checksum
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ./spektr-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.${{ matrix.archive }}.sha256
-          asset_name: spektr-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.${{ matrix.archive }}.sha256
-          asset_content_type: text/plain
+          files: |
+            spektr-*.tar.gz
+            spektr-*.zip
+            spektr-*.sha256
