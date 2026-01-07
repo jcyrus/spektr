@@ -69,7 +69,7 @@ construct_url() {
         fi
     fi
     
-    FILENAME="spektr-${VERSION}-${TARGET}.tar.gz"
+    FILENAME="spektr-v${VERSION}-${TARGET}.tar.gz"
     DOWNLOAD_URL="https://github.com/${REPO}/releases/download/v${VERSION}/${FILENAME}"
 }
 

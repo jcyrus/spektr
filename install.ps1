@@ -47,7 +47,7 @@ function Get-Architecture {
 function Download-Binary($version, $arch) {
     Write-ColorOutput Cyan "📥 Downloading SPEKTR..."
     
-    $filename = "spektr-$version-$arch-pc-windows-msvc.zip"
+    $filename = "spektr-v$version-$arch-pc-windows-msvc.zip"
     $url = "https://github.com/$REPO/releases/download/v$version/$filename"
     
     $tmpDir = New-TemporaryFile | ForEach-Object { Remove-Item $_; New-Item -ItemType Directory -Path $_ }
