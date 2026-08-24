@@ -7,7 +7,8 @@
 **Mission Control for your Disk Space.** _A blazing-fast, TUI-based artifact cleaner for developers._
 
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![Build Status](https://github.com/jcyrus/spektr/actions/workflows/release.yml/badge.svg)](https://github.com/jcyrus/spektr/actions/workflows/release.yml)
+[![CI](https://github.com/jcyrus/spektr/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/jcyrus/spektr/actions/workflows/ci.yml)
+[![Release](https://github.com/jcyrus/spektr/actions/workflows/release.yml/badge.svg)](https://github.com/jcyrus/spektr/actions/workflows/release.yml)
 [![Version](https://img.shields.io/github/v/release/jcyrus/spektr)](https://github.com/jcyrus/spektr/releases)
 ![Platform](https://img.shields.io/badge/platform-macos%20|%20linux%20|%20windows-lightgrey)
 

@@ -4,11 +4,14 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Called by release.yml so a tag can't publish binaries that fail these checks.
+  workflow_call:
 
-# A newer push to the same branch supersedes an in-flight run.
+# A newer push to the same branch supersedes an in-flight run. Tags each get
+# their own group, so a release verification is never cancelled by another tag.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 env:
   CARGO_TERM_COLOR: always
