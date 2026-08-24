@@ -1,11 +1,12 @@
-mod tree;
 mod app_state;
 mod events;
 mod layout;
+mod tree;
 mod widgets;
 
-pub use app_state::AppState;
+use crate::scanner::ScanEvent;
 use anyhow::Result;
+pub use app_state::AppState;
 use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
@@ -13,12 +14,7 @@ use crossterm::{
 use events::{poll_event, AppEvent};
 use layout::AppLayout;
 use ratatui::{backend::CrosstermBackend, Terminal};
-use std::{
-    io,
-    sync::mpsc::Receiver,
-    time::Duration,
-};
-use crate::scanner::ScanEvent;
+use std::{io, sync::mpsc::Receiver, time::Duration};
 
 use std::path::PathBuf;
 

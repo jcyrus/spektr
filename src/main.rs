@@ -3,8 +3,8 @@ mod tui;
 
 use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
-use scanner::{Scanner, ScanEvent};
 use scanner::strategy::default_strategies;
+use scanner::{ScanEvent, Scanner};
 use std::env;
 use std::path::PathBuf;
 use std::sync::mpsc;
@@ -52,8 +52,6 @@ fn main() -> Result<()> {
         Some(path) => path,
         None => env::current_dir().context("Failed to get current directory")?,
     };
-
-
 
     match cli.mode {
         Mode::Scan => run_scan_mode(&scan_path),
@@ -105,7 +103,8 @@ fn run_scan_mode(scan_path: &std::path::Path) -> Result<()> {
     }
 
     // Handle thread panic safely
-    handle.join()
+    handle
+        .join()
         .map_err(|_| anyhow::anyhow!("Scanner thread panicked"))?
         .context("Scanning failed")?;
 

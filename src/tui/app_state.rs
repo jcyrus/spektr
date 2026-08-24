@@ -40,7 +40,7 @@ impl FilterMode {
     }
 }
 
-use crate::tui::tree::{TreeNode, build_tree, flatten_tree};
+use crate::tui::tree::{build_tree, flatten_tree, TreeNode};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ViewMode {
@@ -56,20 +56,20 @@ pub struct AppState {
 
     /// All discovered projects
     all_projects: Vec<CleanableProject>,
-    
+
     /// Filtered and sorted projects (displayed)
     visible_projects: Vec<CleanableProject>,
-    
+
     /// Currently selected index in visible_projects (or flattened tree)
     pub selected_index: usize,
-    
+
     /// Set of selected project indices (for multi-selection in List mode)
     /// In Tree mode, the TreeNode itself holds Checked state
     selected_projects: HashSet<usize>,
-    
+
     /// Current sort mode
     pub sort_mode: SortMode,
-    
+
     /// Current filter mode
     pub filter_mode: FilterMode,
 
@@ -78,19 +78,19 @@ pub struct AppState {
 
     /// Root nodes of the project tree
     pub tree_roots: Vec<TreeNode>,
-    
+
     /// Show confirmation modal
     pub show_confirmation: bool,
-    
+
     /// User confirmed deletion (set when 'y' is pressed)
     pub deletion_confirmed: bool,
-    
+
     /// Scan is still running
     pub scanning: bool,
 
     /// Current path being scanned
     pub scanning_path: String,
-    
+
     /// Spinner animation index
     pub spinner_index: usize,
 }
@@ -165,8 +165,6 @@ impl AppState {
         &self.visible_projects
     }
 
-
-
     pub fn visible_count(&self) -> usize {
         match self.view_mode {
             ViewMode::List => self.visible_projects.len(),
@@ -222,7 +220,8 @@ impl AppState {
 
     pub fn total_selected_size(&self) -> u64 {
         match self.view_mode {
-            ViewMode::List => self.selected_projects
+            ViewMode::List => self
+                .selected_projects
                 .iter()
                 .filter_map(|&idx| self.visible_projects.get(idx))
                 .map(|p| p.total_size)
@@ -236,7 +235,8 @@ impl AppState {
 
     pub fn get_selected_projects(&self) -> Vec<CleanableProject> {
         match self.view_mode {
-            ViewMode::List => self.selected_projects
+            ViewMode::List => self
+                .selected_projects
                 .iter()
                 .filter_map(|&idx| self.visible_projects.get(idx))
                 .cloned()
@@ -313,8 +313,8 @@ impl AppState {
                     }
                 }
                 // Take top 100 for performance (list only)
-                // filtered.truncate(100); 
-                
+                // filtered.truncate(100);
+
                 self.visible_projects = filtered;
             }
             ViewMode::Tree => {
@@ -338,8 +338,9 @@ impl AppState {
         match self.view_mode {
             ViewMode::List => self.visible_projects.get(self.selected_index),
             ViewMode::Tree => {
-                 let flat = self.get_flat_tree();
-                 flat.get(self.selected_index).and_then(|node| node.node.project.as_ref())
+                let flat = self.get_flat_tree();
+                flat.get(self.selected_index)
+                    .and_then(|node| node.node.project.as_ref())
             }
         }
     }
@@ -347,7 +348,11 @@ impl AppState {
 
 // Helper functions for tree traversal
 
-fn find_node_at_mut<'a>(node: &'a mut TreeNode, current_idx: &mut usize, target_idx: usize) -> Option<&'a mut TreeNode> {
+fn find_node_at_mut<'a>(
+    node: &'a mut TreeNode,
+    current_idx: &mut usize,
+    target_idx: usize,
+) -> Option<&'a mut TreeNode> {
     if *current_idx == target_idx {
         return Some(node);
     }
@@ -378,10 +383,10 @@ fn sum_checked_size(nodes: &[TreeNode]) -> u64 {
     let mut total = 0;
     for node in nodes {
         if node.project.is_some() && node.checked {
-             // Sum size only for checked projects (folders have None project)
-             if let Some(p) = &node.project {
-                 total += p.total_size;
-             }
+            // Sum size only for checked projects (folders have None project)
+            if let Some(p) = &node.project {
+                total += p.total_size;
+            }
         }
         total += sum_checked_size(&node.children);
     }

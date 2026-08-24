@@ -1,11 +1,11 @@
 pub mod strategy;
 
-use rayon::prelude::*;
-pub use strategy::{CleaningStrategy, RiskLevel};
 use anyhow::Result;
 use jwalk::WalkDir;
+use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
+pub use strategy::{CleaningStrategy, RiskLevel};
 
 /// Represents a discovered project that can be cleaned
 #[derive(Debug, Clone)]
@@ -63,7 +63,7 @@ impl Scanner {
                         });
                         // Once a strategy matches, stop checking others for this dir
                         // (Assuming one dir isn't multiple project types simultaneously, or if so, first wins)
-                        break; 
+                        break;
                     }
                 }
             }
@@ -71,7 +71,12 @@ impl Scanner {
 
         // 2. Deduplication Phase: Filter out nested projects
         // Sort by path length (shortest first) to ensure parents are processed before children
-        candidates.sort_by(|a, b| a.root.components().count().cmp(&b.root.components().count()));
+        candidates.sort_by(|a, b| {
+            a.root
+                .components()
+                .count()
+                .cmp(&b.root.components().count())
+        });
 
         let mut valid_projects = Vec::new();
         let mut ignored_prefixes = Vec::new();
@@ -80,17 +85,19 @@ impl Scanner {
             // Check if this project is inside a directory marked for deletion
             let mut skip = false;
             for prefix in &ignored_prefixes {
-                if candidate.root.starts_with(prefix) { 
-                    skip = true; 
-                    break; 
+                if candidate.root.starts_with(prefix) {
+                    skip = true;
+                    break;
                 }
             }
 
-            if skip { continue; }
+            if skip {
+                continue;
+            }
 
             // It's a valid project
             let strategy = &self.strategies[candidate.strategy_idx];
-            
+
             // Mark its targets as ignored zones for future candidates
             for target_name in strategy.targets() {
                 ignored_prefixes.push(candidate.root.join(target_name));
@@ -104,13 +111,16 @@ impl Scanner {
             .into_par_iter()
             .map(|candidate| {
                 let strategy = &self.strategies[candidate.strategy_idx];
-                
+
                 // Emit scanning event for this project
                 // Clone tx for this thread
-                let _ = tx.send(ScanEvent::Scanning(format!("Analyzing: {}", candidate.root.display())));
+                let _ = tx.send(ScanEvent::Scanning(format!(
+                    "Analyzing: {}",
+                    candidate.root.display()
+                )));
 
                 let targets = self.find_targets(&candidate.root, strategy.as_ref());
-                
+
                 // Calculate size (using jwalk internally for parallelism)
                 let total_size = self.calculate_size(&targets).unwrap_or(0);
 
