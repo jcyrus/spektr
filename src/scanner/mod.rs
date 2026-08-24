@@ -71,12 +71,7 @@ impl Scanner {
 
         // 2. Deduplication Phase: Filter out nested projects
         // Sort by path length (shortest first) to ensure parents are processed before children
-        candidates.sort_by(|a, b| {
-            a.root
-                .components()
-                .count()
-                .cmp(&b.root.components().count())
-        });
+        candidates.sort_by_key(|c| c.root.components().count());
 
         let mut valid_projects = Vec::new();
         let mut ignored_prefixes = Vec::new();
@@ -121,8 +116,7 @@ impl Scanner {
 
                 let targets = self.find_targets(&candidate.root, strategy.as_ref());
 
-                // Calculate size (using jwalk internally for parallelism)
-                let total_size = self.calculate_size(&targets).unwrap_or(0);
+                let total_size = self.calculate_size(&targets);
 
                 let project = CleanableProject {
                     root_path: candidate.root,
@@ -157,20 +151,33 @@ impl Scanner {
         targets
     }
 
-    /// Calculates the total size of all targets
-    fn calculate_size(&self, targets: &[PathBuf]) -> Result<u64> {
+    /// Calculates the total size of all targets.
+    ///
+    /// The walk is deliberately serial: this runs inside the `into_par_iter` in
+    /// `scan`, so the surrounding Rayon pool already provides the parallelism.
+    /// Letting jwalk claim the default pool from a worker thread fails with
+    /// `ThreadpoolBusy` and loses the whole subtree.
+    ///
+    /// Unreadable entries are skipped rather than aborting the target, so a
+    /// single permission error can't zero out an entire project's size.
+    fn calculate_size(&self, targets: &[PathBuf]) -> u64 {
         let mut total = 0u64;
 
         for target in targets {
-            for entry in WalkDir::new(target).skip_hidden(false) {
-                let entry = entry?;
+            let walker = WalkDir::new(target)
+                .skip_hidden(false)
+                .parallelism(jwalk::Parallelism::Serial);
+
+            for entry in walker.into_iter().flatten() {
                 if entry.file_type().is_file() {
-                    total += entry.metadata()?.len();
+                    if let Ok(metadata) = entry.metadata() {
+                        total += metadata.len();
+                    }
                 }
             }
         }
 
-        Ok(total)
+        total
     }
 }
 
@@ -180,4 +187,96 @@ pub enum ScanEvent {
     Scanning(String), // New variant for progress updates
     ProjectFound(CleanableProject),
     Complete,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::sync::mpsc;
+
+    /// Creates `count` Node projects, each holding one file of `file_size`
+    /// bytes inside `node_modules`. Returns the total reclaimable byte count.
+    fn node_projects(dir: &Path, count: usize, file_size: usize) -> u64 {
+        for i in 0..count {
+            let root = dir.join(format!("app{i}"));
+            let modules = root.join("node_modules");
+            fs::create_dir_all(&modules).unwrap();
+            fs::write(root.join("package.json"), "{}").unwrap();
+            fs::write(modules.join("blob.bin"), vec![b'x'; file_size]).unwrap();
+        }
+        (count * file_size) as u64
+    }
+
+    fn scan(root: &Path) -> Vec<CleanableProject> {
+        let (tx, rx) = mpsc::channel();
+        let projects = Scanner::new(strategy::default_strategies())
+            .scan(root, tx)
+            .unwrap();
+        drop(rx);
+        projects
+    }
+
+    /// `calculate_size` runs inside the scan's Rayon pool. If its inner walk
+    /// tries to claim jwalk's default pool from a worker thread it fails with
+    /// `ThreadpoolBusy`, and the subtree is silently counted as zero bytes --
+    /// so the reported total lands far under the real size and differs between
+    /// runs. Enough projects to force contention is what makes this show up.
+    #[test]
+    fn reports_exact_total_size_under_pool_contention() {
+        let tmp = tempfile::tempdir().unwrap();
+        let expected = node_projects(tmp.path(), 128, 1024);
+
+        let projects = scan(tmp.path());
+
+        assert_eq!(projects.len(), 128, "every project should be discovered");
+        let total: u64 = projects.iter().map(|p| p.total_size).sum();
+        assert_eq!(total, expected, "reported total must match bytes on disk");
+    }
+
+    /// A project inside another project's target directory is an artifact, not
+    /// a project -- counting it separately would double-count its bytes and
+    /// offer the user a deletion nested inside another deletion.
+    #[test]
+    fn skips_projects_nested_inside_a_target_directory() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("app");
+        let dep = root.join("node_modules").join("dep");
+        fs::create_dir_all(&dep).unwrap();
+        fs::write(root.join("package.json"), "{}").unwrap();
+        fs::write(dep.join("package.json"), "{}").unwrap();
+
+        let projects = scan(tmp.path());
+
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].root_path, root);
+    }
+
+    /// An unreadable directory must not discard the bytes already counted for
+    /// that target -- the previous implementation propagated the error and the
+    /// caller turned the whole project into a size of zero.
+    #[cfg(unix)]
+    #[test]
+    fn unreadable_entries_do_not_zero_the_target() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let expected = node_projects(tmp.path(), 1, 4096);
+
+        let locked = tmp.path().join("app0").join("node_modules").join("locked");
+        fs::create_dir_all(&locked).unwrap();
+        fs::write(locked.join("hidden.bin"), vec![b'x'; 512]).unwrap();
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+
+        let projects = scan(tmp.path());
+        // Restore permissions so the tempdir can clean itself up.
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+
+        assert_eq!(projects.len(), 1);
+        assert!(
+            projects[0].total_size >= expected,
+            "readable bytes must survive an unreadable sibling: got {}, expected at least {expected}",
+            projects[0].total_size
+        );
+    }
 }
