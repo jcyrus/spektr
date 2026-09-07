@@ -7,6 +7,13 @@ on:
   # Called by release.yml so a tag can't publish binaries that fail these checks.
   workflow_call:
 
+# release.yml calls this workflow with contents: write so it can publish
+# assets; without an explicit block here, that write scope would leak into
+# every job below, including test/lint steps that run repository-controlled
+# code. Read-only is all any job here needs.
+permissions:
+  contents: read
+
 # A newer push to the same branch supersedes an in-flight run. Tags each get
 # their own group, so a release verification is never cancelled by another tag.
 concurrency:
@@ -23,6 +30,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The token checkout leaves in local git config by default would
+          # otherwise be readable by any step that follows, including build
+          # and test commands running repository-controlled code.
+          persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -45,6 +57,11 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The token checkout leaves in local git config by default would
+          # otherwise be readable by any step that follows, including build
+          # and test commands running repository-controlled code.
+          persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@stable
 
