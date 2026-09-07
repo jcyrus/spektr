@@ -17,3 +17,6 @@ Thumbs.db
 # Debug
 *.pdb
 *.dSYM/
+
+# Local Claude Code settings (machine-specific, not project config)
+.claude/

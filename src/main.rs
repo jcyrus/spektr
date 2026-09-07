@@ -1,8 +1,12 @@
+mod analyze;
+mod format;
 mod scanner;
+mod theme;
 mod tui;
 
 use anyhow::{Context, Result};
-use clap::{Parser, ValueEnum};
+use clap::{Parser, Subcommand, ValueEnum};
+use format::format_size;
 use scanner::strategy::default_strategies;
 use scanner::{ScanEvent, Scanner};
 use std::env;
@@ -13,7 +17,11 @@ use std::thread;
 #[derive(Parser)]
 #[command(name = "spektr")]
 #[command(about = "A blazing-fast TUI utility for cleaning development artifacts", long_about = None)]
+#[command(args_conflicts_with_subcommands = true)]
 struct Cli {
+    #[command(subcommand)]
+    command: Option<Commands>,
+
     /// Directory to scan (defaults to current directory)
     #[arg(value_name = "PATH")]
     path: Option<PathBuf>,
@@ -31,6 +39,16 @@ struct Cli {
     version: bool,
 }
 
+#[derive(Subcommand)]
+enum Commands {
+    /// Explore storage interactively, largest directories first
+    Analyze {
+        /// Directory to explore (defaults to current directory)
+        #[arg(value_name = "PATH")]
+        path: Option<PathBuf>,
+    },
+}
+
 #[derive(Clone, ValueEnum)]
 enum Mode {
     /// Simple scan mode (prints to stdout)
@@ -46,6 +64,14 @@ fn main() -> Result<()> {
     if cli.version {
         println!("spektr {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
+    }
+
+    if let Some(Commands::Analyze { path }) = cli.command {
+        let path = match path {
+            Some(path) => path,
+            None => env::current_dir().context("Failed to get current directory")?,
+        };
+        return analyze::ui::run(&path);
     }
 
     let scan_path = match cli.path {
@@ -149,20 +175,4 @@ fn run_tui_mode(scan_path: &std::path::Path, _dry_run: bool) -> Result<()> {
     }
 
     Ok(())
-}
-
-fn format_size(bytes: u64) -> String {
-    const KB: u64 = 1024;
-    const MB: u64 = KB * 1024;
-    const GB: u64 = MB * 1024;
-
-    if bytes >= GB {
-        format!("{:.2} GB", bytes as f64 / GB as f64)
-    } else if bytes >= MB {
-        format!("{:.2} MB", bytes as f64 / MB as f64)
-    } else if bytes >= KB {
-        format!("{:.2} KB", bytes as f64 / KB as f64)
-    } else {
-        format!("{} B", bytes)
-    }
 }

@@ -1,5 +1,25 @@
+use crate::analyze::{scan, Browser, DirSizes, Progress};
 use crate::scanner::CleanableProject;
 use std::collections::HashSet;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
+use std::thread::JoinHandle;
+
+/// Drill-down into one project's directory tree, showing where its bytes
+/// actually sit. Sizing a multi-gigabyte project takes a moment, so the walk
+/// runs on its own thread and the pane shows progress until it lands.
+pub enum Drill {
+    Scanning {
+        name: String,
+        root: PathBuf,
+        progress: Arc<Progress>,
+        handle: JoinHandle<DirSizes>,
+    },
+    Ready {
+        name: String,
+        browser: Browser,
+    },
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SortMode {
@@ -93,6 +113,9 @@ pub struct AppState {
 
     /// Spinner animation index
     pub spinner_index: usize,
+
+    /// Active drill-down, if the user has opened a project.
+    pub drill: Option<Drill>,
 }
 
 impl AppState {
@@ -112,6 +135,7 @@ impl AppState {
             scanning: true,
             scanning_path: String::new(),
             spinner_index: 0,
+            drill: None,
         }
     }
 
@@ -331,6 +355,75 @@ impl AppState {
         let count = self.visible_count();
         if self.selected_index >= count && count > 0 {
             self.selected_index = count - 1;
+        }
+    }
+
+    pub fn drill_active(&self) -> bool {
+        self.drill.is_some()
+    }
+
+    /// Total size of everything currently listed, used as the denominator for
+    /// each project's share of the reclaimable total.
+    pub fn visible_total_size(&self) -> u64 {
+        self.visible_projects.iter().map(|p| p.total_size).sum()
+    }
+
+    /// Opens the highlighted project and starts sizing its subtree.
+    pub fn enter_drill(&mut self) {
+        if self.drill.is_some() {
+            return;
+        }
+        let Some(project) = self.current_project() else {
+            return;
+        };
+        let root = project.root_path.clone();
+        let name = root
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| root.display().to_string());
+
+        let progress = Arc::new(Progress::default());
+        let scan_progress = Arc::clone(&progress);
+        let scan_root = root.clone();
+        let handle = std::thread::spawn(move || scan(&scan_root, &scan_progress));
+
+        self.drill = Some(Drill::Scanning {
+            name,
+            root,
+            progress,
+            handle,
+        });
+    }
+
+    /// Promotes a finished scan into a browsable tree. Called once per frame.
+    pub fn poll_drill(&mut self) {
+        let ready = matches!(
+            &self.drill,
+            Some(Drill::Scanning { progress, .. }) if progress.done.load(Ordering::Acquire)
+        );
+        if !ready {
+            return;
+        }
+        let Some(Drill::Scanning {
+            name, root, handle, ..
+        }) = self.drill.take()
+        else {
+            return;
+        };
+        self.drill = handle.join().ok().map(|sizes| Drill::Ready {
+            name,
+            browser: Browser::new(root, sizes),
+        });
+    }
+
+    pub fn exit_drill(&mut self) {
+        self.drill = None;
+    }
+
+    /// The drill pane decides how many rows fit before the tail is collapsed.
+    pub fn set_drill_viewport(&mut self, rows: usize) {
+        if let Some(Drill::Ready { browser, .. }) = &mut self.drill {
+            browser.visible_limit = rows.max(1);
         }
     }
 

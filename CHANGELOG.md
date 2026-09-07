@@ -16,6 +16,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Docker/container artifact cleaning
 - Statistics dashboard (space saved over time)
 
+## [0.2.0] - 2026-09-07
+
+### Added
+
+- **Storage Explorer (`spektr analyze [path]`)**
+  - Interactive drill-down into any directory, largest first at every level
+  - One parallel pass sizes the whole tree up front, so descending is instant
+  - Percentages rebase to the current folder as you navigate
+  - `Other (N items)` collapses the long tail instead of flooding the view
+- **Project drill-down** — press `→` on any project in the main list to break
+  its size down folder by folder with the same bars, `←` to back out
+- **Synthwave theme** applied across the whole TUI (`src/theme.rs`): magenta
+  accents, amber highlights, a single reserved danger color for destructive
+  actions, and size-magnitude-colored figures throughout
+
+### Fixed
+
+- Directory and project sizes now report **space allocated on disk** (matching
+  `du`/Finder) instead of logical byte length, which understated the size of
+  trees with many small files
+- Byte formatting now uses **decimal SI units** (1 kB = 1000 B), matching
+  Finder; the previous binary-divisor math under-reported by ~7% at MB and
+  ~10% at GB against what users saw elsewhere
+- The project list didn't track `ListState`, so scanning a folder with more
+  projects than fit on screen made rows below the fold unreachable
+
 ## [0.1.1] - 2026-01-08
 
 ### Added

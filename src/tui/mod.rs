@@ -7,6 +7,7 @@ mod widgets;
 use crate::scanner::ScanEvent;
 use anyhow::Result;
 pub use app_state::AppState;
+use app_state::Drill;
 use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
@@ -46,11 +47,21 @@ pub fn run_tui(rx: Receiver<ScanEvent>, scan_path: PathBuf) -> Result<AppState> 
             }
         }
 
+        state.poll_drill();
+
+        // The drill pane owns the left column; size its viewport before drawing.
+        let height = terminal.size()?.height;
+        state.set_drill_viewport(usize::from(height).saturating_sub(4).max(1));
+
         // Render UI
         terminal.draw(|f| {
             let app_layout = AppLayout::new(f.area());
 
-            widgets::render_project_tree(f, app_layout.project_tree, &state);
+            if state.drill_active() {
+                widgets::render_drill_pane(f, app_layout.project_tree, &state);
+            } else {
+                widgets::render_project_tree(f, app_layout.project_tree, &state);
+            }
             widgets::render_details_pane(f, app_layout.details_pane, &state);
             widgets::render_action_pane(f, app_layout.action_pane, &state);
 
@@ -81,6 +92,34 @@ pub fn run_tui(rx: Receiver<ScanEvent>, scan_path: PathBuf) -> Result<AppState> 
                     }
                     _ => {}
                 }
+            } else if state.drill_active() {
+                // Inside a project. Quit backs out to the list rather than
+                // leaving the app, matching how the confirmation modal behaves.
+                match app_event {
+                    AppEvent::Quit => state.exit_drill(),
+                    AppEvent::MoveLeft => match &mut state.drill {
+                        Some(Drill::Ready { browser, .. }) if !browser.at_root() => {
+                            browser.ascend()
+                        }
+                        _ => state.exit_drill(),
+                    },
+                    AppEvent::MoveRight => {
+                        if let Some(Drill::Ready { browser, .. }) = &mut state.drill {
+                            browser.descend();
+                        }
+                    }
+                    AppEvent::MoveUp => {
+                        if let Some(Drill::Ready { browser, .. }) = &mut state.drill {
+                            browser.move_up();
+                        }
+                    }
+                    AppEvent::MoveDown => {
+                        if let Some(Drill::Ready { browser, .. }) = &mut state.drill {
+                            browser.move_down();
+                        }
+                    }
+                    _ => {}
+                }
             } else {
                 // Normal navigation
                 match app_event {
@@ -94,7 +133,10 @@ pub fn run_tui(rx: Receiver<ScanEvent>, scan_path: PathBuf) -> Result<AppState> 
                     AppEvent::ToggleSort => state.toggle_sort(),
                     AppEvent::CycleFilter => state.cycle_filter(),
                     AppEvent::ToggleViewMode => state.toggle_view_mode(),
-                    AppEvent::ToggleExpand => state.toggle_expand(),
+                    AppEvent::MoveRight => match state.view_mode {
+                        app_state::ViewMode::Tree => state.toggle_expand(),
+                        app_state::ViewMode::List => state.enter_drill(),
+                    },
                     _ => {}
                 }
             }

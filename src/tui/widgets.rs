@@ -1,117 +1,173 @@
-use crate::tui::app_state::{AppState, SortMode};
+use crate::analyze::Row;
+use crate::format::{format_size, truncate};
+use crate::theme;
+use crate::tui::app_state::{AppState, Drill, SortMode, ViewMode};
 use ratatui::{
     layout::{Alignment, Constraint, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
+    widgets::{Block, BorderType, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap},
     Frame,
 };
 
-use crate::tui::app_state::ViewMode;
+/// Every pane shares one frame treatment, so the UI reads as a single surface.
+fn panel(title: &str) -> Block<'_> {
+    Block::default()
+        .title(Span::styled(
+            format!(" {title} "),
+            Style::default()
+                .fg(theme::BRAND)
+                .add_modifier(Modifier::BOLD),
+        ))
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(theme::CHROME))
+}
+
+fn strategy_icon(name: &str) -> &'static str {
+    match name {
+        "Rust" => "🦀",
+        "Node.js" => "📦",
+        "Flutter" => "💙",
+        "Android" => "🤖",
+        _ => "📁",
+    }
+}
+
+fn dim(text: impl Into<String>) -> Span<'static> {
+    Span::styled(text.into(), Style::default().fg(theme::DIM))
+}
 
 pub fn render_project_tree(f: &mut Frame, area: Rect, state: &AppState) {
+    let inner_width = area.width.saturating_sub(2) as usize;
+    let total = state.visible_total_size();
+
     let items: Vec<ListItem> = match state.view_mode {
-        ViewMode::List => state
-            .visible_projects()
-            .iter()
-            .enumerate()
-            .map(|(idx, project)| {
-                let emoji = match project.strategy_name.as_str() {
-                    "Rust" => "🦀",
-                    "Node.js" => "📦",
-                    "Flutter" => "💙",
-                    "Android" => "🤖",
-                    _ => "📁",
-                };
+        ViewMode::List => {
+            // Columns: checkbox, icon, name, size, share, bar, open affordance.
+            let bar_width = (inner_width / 5).clamp(6, 20);
+            let name_width = inner_width
+                .saturating_sub(2 + 4 + 3 + 10 + 3 + 6 + 1 + bar_width + 2)
+                .max(8);
 
-                let size = format_size(project.total_size);
-                let path = project
-                    .root_path
-                    .file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy();
-
-                let checkbox = if state.is_selected(idx) {
-                    "[✓]"
-                } else {
-                    "[ ]"
-                };
-
-                let text = format!("{} {} {} - {}", checkbox, emoji, path, size);
-
-                let style = if idx == state.selected_index {
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD)
-                } else if state.is_selected(idx) {
-                    Style::default().fg(Color::Green)
-                } else {
-                    Style::default()
-                };
-
-                ListItem::new(text).style(style)
-            })
-            .collect(),
-        ViewMode::Tree => {
             state
-                .get_flat_tree()
+                .visible_projects()
                 .iter()
                 .enumerate()
-                .map(|(idx, flat_node)| {
-                    let node = flat_node.node;
-
-                    // Use pre-computed guide prefix for proper tree lines
-                    let guide = &flat_node.guide_prefix;
-
-                    // Collapse/Expand marker
-                    let fold_marker = if !node.children.is_empty() {
-                        if node.collapsed {
-                            "▶"
-                        } else {
-                            "▼"
-                        }
+                .map(|(idx, project)| {
+                    let focused = idx == state.selected_index;
+                    let checked = state.is_selected(idx);
+                    let share = if total == 0 {
+                        0.0
                     } else {
-                        " "
+                        project.total_size as f64 / total as f64 * 100.0
                     };
+                    let name = project
+                        .root_path
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy();
 
-                    // Checkbox
-                    let checkbox = if node.checked { "[✓]" } else { "[ ]" };
-
-                    // Icon
-                    let emoji = if let Some(p) = &node.project {
-                        match p.strategy_name.as_str() {
-                            "Rust" => "🦀",
-                            "Node.js" => "📦",
-                            "Flutter" => "💙",
-                            "Android" => "🤖",
-                            _ => "📦",
-                        }
-                    } else {
-                        "📁"
-                    };
-
-                    let name = node.label();
-                    let size = format_size(node.total_size());
-
-                    let text = format!(
-                        "{}{} {} {} {} - {}",
-                        guide, fold_marker, checkbox, emoji, name, size
-                    );
-
-                    let style = if idx == state.selected_index {
+                    let name_style = if focused {
                         Style::default()
-                            .fg(Color::Yellow)
+                            .fg(theme::BRIGHT)
                             .add_modifier(Modifier::BOLD)
-                    } else if node.checked {
-                        Style::default().fg(Color::Green)
+                    } else if checked {
+                        Style::default().fg(theme::OK)
                     } else {
-                        Style::default()
+                        Style::default().fg(theme::BODY)
                     };
 
-                    ListItem::new(text).style(style)
+                    let (filled, empty) = theme::bar_spans(share, bar_width);
+                    ListItem::new(Line::from(vec![
+                        Span::styled(
+                            if focused { "▸ " } else { "  " },
+                            Style::default().fg(theme::ACCENT),
+                        ),
+                        Span::styled(
+                            if checked { "[▣] " } else { "[ ] " },
+                            Style::default().fg(if checked {
+                                theme::ACCENT
+                            } else {
+                                theme::CHROME
+                            }),
+                        ),
+                        Span::raw(format!("{} ", strategy_icon(&project.strategy_name))),
+                        Span::styled(
+                            format!("{:<w$}", truncate(&name, name_width), w = name_width),
+                            name_style,
+                        ),
+                        Span::styled(
+                            format!("{:>10}", format_size(project.total_size)),
+                            Style::default().fg(theme::size_color(project.total_size)),
+                        ),
+                        Span::styled(" │ ", Style::default().fg(theme::CHROME)),
+                        dim(format!("{share:>5.1}%")),
+                        Span::raw(" "),
+                        filled,
+                        empty,
+                        Span::styled(" →", Style::default().fg(theme::CHROME)),
+                    ]))
                 })
                 .collect()
         }
+        ViewMode::Tree => state
+            .get_flat_tree()
+            .iter()
+            .enumerate()
+            .map(|(idx, flat_node)| {
+                let node = flat_node.node;
+                let focused = idx == state.selected_index;
+                let fold_marker = if node.children.is_empty() {
+                    " "
+                } else if node.collapsed {
+                    "▶"
+                } else {
+                    "▼"
+                };
+                let icon = node
+                    .project
+                    .as_ref()
+                    .map(|p| strategy_icon(&p.strategy_name))
+                    .unwrap_or("📁");
+
+                let name_style = if focused {
+                    Style::default()
+                        .fg(theme::BRIGHT)
+                        .add_modifier(Modifier::BOLD)
+                } else if node.checked {
+                    Style::default().fg(theme::OK)
+                } else {
+                    Style::default().fg(theme::BODY)
+                };
+
+                ListItem::new(Line::from(vec![
+                    Span::styled(
+                        flat_node.guide_prefix.clone(),
+                        Style::default().fg(theme::CHROME),
+                    ),
+                    Span::styled(
+                        format!("{fold_marker} "),
+                        Style::default().fg(theme::ACCENT),
+                    ),
+                    Span::styled(
+                        if node.checked { "[▣] " } else { "[ ] " },
+                        Style::default().fg(if node.checked {
+                            theme::ACCENT
+                        } else {
+                            theme::CHROME
+                        }),
+                    ),
+                    Span::raw(format!("{icon} ")),
+                    Span::styled(node.label().to_string(), name_style),
+                    dim(" — "),
+                    Span::styled(
+                        format_size(node.total_size()),
+                        Style::default().fg(theme::size_color(node.total_size())),
+                    ),
+                ]))
+            })
+            .collect(),
     };
 
     let sort_label = match state.sort_mode {
@@ -120,120 +176,261 @@ pub fn render_project_tree(f: &mut Frame, area: Rect, state: &AppState) {
         SortMode::NameAsc => "Name ↑",
         SortMode::NameDesc => "Name ↓",
     };
-
     let view_label = match state.view_mode {
         ViewMode::List => "List",
         ViewMode::Tree => "Tree",
     };
-
-    let title = if state.scanning {
-        format!(
-            " Projects (Scanning...) | {} | Sort: {} | Filter: {} ",
-            view_label,
-            sort_label,
-            state.filter_mode.label()
-        )
+    let count = if state.scanning {
+        "scanning…".to_string()
     } else {
-        format!(
-            " Projects ({}) | {} | Sort: {} | Filter: {} ",
-            state.visible_count(),
-            view_label,
-            sort_label,
-            state.filter_mode.label()
-        )
+        state.visible_count().to_string()
     };
 
-    let mut block = Block::default()
-        .title(title)
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Cyan));
+    let mut block = panel("Projects").title(Line::from(vec![
+        dim(format!(" {count} · {view_label} · sort ")),
+        Span::styled(sort_label, Style::default().fg(theme::ACCENT)),
+        dim(" · filter "),
+        Span::styled(
+            state.filter_mode.label().to_string(),
+            Style::default().fg(theme::ACCENT),
+        ),
+        Span::raw(" "),
+    ]));
 
     if state.scanning {
-        let spinner = vec!["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-        // Simple spinner using system time or random?
-        // Since we redraw on event, and scanning events come fast, it will animate.
-        // We can use the path length to pick a frame to avoid storing extra state if we want.
-        let frame = spinner[state.spinner_index % spinner.len()];
-
-        // Truncate path if too long
+        const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+        let frame = SPINNER[state.spinner_index % SPINNER.len()];
         let max_len = area.width.saturating_sub(20) as usize;
-        let display_path = if state.scanning_path.len() > max_len {
-            format!(
-                "...{}",
-                &state.scanning_path[state.scanning_path.len().saturating_sub(max_len)..]
-            )
-        } else {
-            state.scanning_path.clone()
-        };
-
         block = block.title_bottom(
             Line::from(vec![
-                Span::styled(
-                    format!(" {} Scanning: ", frame),
-                    Style::default().fg(Color::Yellow),
-                ),
-                Span::raw(display_path),
+                Span::styled(format!(" {frame} "), Style::default().fg(theme::ACCENT)),
+                dim(truncate(&state.scanning_path, max_len)),
                 Span::raw(" "),
             ])
             .alignment(Alignment::Right),
         );
     }
 
-    let list = List::new(items).block(block);
+    // A fresh ListState each frame keeps the cursor scrolled into view; without
+    // it a list longer than the pane simply never scrolls.
+    let mut list_state = ListState::default().with_selected(Some(state.selected_index));
+    f.render_stateful_widget(List::new(items).block(block), area, &mut list_state);
+}
 
-    f.render_widget(list, area);
+/// The project drill-down: where one project's bytes actually sit.
+pub fn render_drill_pane(f: &mut Frame, area: Rect, state: &AppState) {
+    let block = panel("Storage");
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    match &state.drill {
+        Some(Drill::Scanning { name, progress, .. }) => {
+            const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+            let frame = SPINNER[state.spinner_index % SPINNER.len()];
+            let dirs = progress.dirs.load(std::sync::atomic::Ordering::Relaxed);
+            let bytes = progress.bytes.load(std::sync::atomic::Ordering::Relaxed);
+            let lines = vec![
+                Line::from(vec![Span::styled(
+                    name.clone(),
+                    Style::default()
+                        .fg(theme::BRIGHT)
+                        .add_modifier(Modifier::BOLD),
+                )]),
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled(format!("{frame} "), Style::default().fg(theme::ACCENT)),
+                    Span::styled("sizing  ", Style::default().fg(theme::BODY)),
+                    Span::styled(format_size(bytes), Style::default().fg(theme::OK)),
+                    dim(format!("  ·  {dirs} directories")),
+                ]),
+            ];
+            f.render_widget(Paragraph::new(lines), inner);
+        }
+        Some(Drill::Ready { name, browser }) => {
+            let rows = browser.rows();
+            let total = browser.total();
+            let width = inner.width as usize;
+            let bar_width = (width / 5).clamp(6, 20);
+            let name_width = width
+                .saturating_sub(2 + 10 + 3 + 6 + 1 + bar_width + 2)
+                .max(8);
+
+            let mut lines = vec![
+                Line::from(vec![
+                    Span::styled(
+                        name.clone(),
+                        Style::default()
+                            .fg(theme::BRAND)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    dim("  ▸  "),
+                    Span::styled(
+                        truncate(&browser.cwd.display().to_string(), width.saturating_sub(4)),
+                        Style::default().fg(theme::BRIGHT),
+                    ),
+                ]),
+                Line::from(vec![
+                    Span::styled(format_size(total), Style::default().fg(theme::OK)),
+                    dim(format!("  ·  {} items", browser.entries.len())),
+                    if browser.at_root() {
+                        dim("  ·  ← back to projects")
+                    } else {
+                        dim("  ·  ← parent")
+                    },
+                ]),
+                Line::from(Span::styled(
+                    "─".repeat(width),
+                    Style::default().fg(theme::CHROME),
+                )),
+            ];
+
+            let body_height = inner.height.saturating_sub(3) as usize;
+            let offset = browser.cursor.saturating_sub(body_height.saturating_sub(1));
+            for (index, row) in rows.iter().enumerate().skip(offset).take(body_height) {
+                let focused = index == browser.cursor;
+                let (label, size, is_dir, aggregate) = match row {
+                    Row::Item(entry) => (entry.name.clone(), entry.size, entry.is_dir, false),
+                    Row::Other { count, size } => {
+                        (format!("Other ({count} items)"), *size, true, true)
+                    }
+                };
+                let share = if total == 0 {
+                    0.0
+                } else {
+                    size as f64 / total as f64 * 100.0
+                };
+                let name_style = if aggregate {
+                    Style::default().fg(theme::DIM)
+                } else if focused {
+                    Style::default()
+                        .fg(theme::BRIGHT)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(theme::BODY)
+                };
+                let (filled, empty) = theme::bar_spans(share, bar_width);
+                lines.push(Line::from(vec![
+                    Span::styled(
+                        if focused { "▸ " } else { "  " },
+                        Style::default().fg(theme::ACCENT),
+                    ),
+                    Span::styled(
+                        format!("{:<w$}", truncate(&label, name_width), w = name_width),
+                        name_style,
+                    ),
+                    Span::styled(
+                        format!("{:>10}", format_size(size)),
+                        Style::default().fg(theme::size_color(size)),
+                    ),
+                    Span::styled(" │ ", Style::default().fg(theme::CHROME)),
+                    dim(format!("{share:>5.1}%")),
+                    Span::raw(" "),
+                    filled,
+                    empty,
+                    Span::styled(
+                        if is_dir { " →" } else { "  " },
+                        Style::default().fg(theme::CHROME),
+                    ),
+                ]));
+            }
+            f.render_widget(Paragraph::new(lines), inner);
+        }
+        None => {}
+    }
 }
 
 pub fn render_details_pane(f: &mut Frame, area: Rect, state: &AppState) {
-    let text = if let Some(project) = state.current_project() {
-        let path_str = project.root_path.display().to_string();
+    let bold = Style::default()
+        .fg(theme::BODY)
+        .add_modifier(Modifier::BOLD);
 
+    let text = if let Some(Drill::Ready { browser, .. }) = &state.drill {
         let mut lines = vec![
             Line::from(vec![
-                Span::styled("Path: ", Style::default().add_modifier(Modifier::BOLD)),
-                Span::raw(path_str),
+                Span::styled("Folder: ", bold),
+                Span::styled(
+                    browser.cwd.display().to_string(),
+                    Style::default().fg(theme::BRIGHT),
+                ),
             ]),
             Line::from(""),
             Line::from(vec![
-                Span::styled("Type: ", Style::default().add_modifier(Modifier::BOLD)),
-                Span::raw(project.strategy_name.clone()),
+                Span::styled("Size: ", bold),
+                Span::styled(
+                    format_size(browser.total()),
+                    Style::default().fg(theme::size_color(browser.total())),
+                ),
             ]),
             Line::from(""),
             Line::from(vec![
-                Span::styled("Targets: ", Style::default().add_modifier(Modifier::BOLD)),
-                Span::styled("(Will be deleted)", Style::default().fg(Color::LightRed)),
+                Span::styled("Contains: ", bold),
+                dim(format!("{} items", browser.entries.len())),
+            ]),
+            Line::from(""),
+        ];
+        if let Some(Row::Item(entry)) = browser.rows().get(browser.cursor) {
+            lines.push(Line::from(vec![
+                Span::styled("Selected: ", bold),
+                Span::styled(entry.name.clone(), Style::default().fg(theme::ACCENT)),
+            ]));
+            lines.push(Line::from(vec![
+                Span::styled("  ", bold),
+                Span::styled(
+                    format_size(entry.size),
+                    Style::default().fg(theme::size_color(entry.size)),
+                ),
+            ]));
+        }
+        lines
+    } else if let Some(project) = state.current_project() {
+        let mut lines = vec![
+            Line::from(vec![
+                Span::styled("Path: ", bold),
+                Span::styled(
+                    project.root_path.display().to_string(),
+                    Style::default().fg(theme::BRIGHT),
+                ),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("Type: ", bold),
+                Span::styled(
+                    project.strategy_name.clone(),
+                    Style::default().fg(theme::ACCENT),
+                ),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("Targets: ", bold),
+                Span::styled("(will be deleted)", Style::default().fg(theme::DANGER)),
             ]),
         ];
 
         for target in &project.targets {
-            let display_text = if let Ok(relative) = target.strip_prefix(&project.root_path) {
-                relative.display().to_string()
-            } else {
-                target.display().to_string()
-            };
-
+            let display_text = target
+                .strip_prefix(&project.root_path)
+                .unwrap_or(target)
+                .display()
+                .to_string();
             lines.push(Line::from(vec![
-                Span::raw("  • "),
-                Span::styled(display_text, Style::default().fg(Color::Red)),
+                Span::styled("  • ", Style::default().fg(theme::CHROME)),
+                Span::styled(display_text, Style::default().fg(theme::DANGER)),
             ]));
         }
 
-        lines.extend(vec![
+        lines.extend([
             Line::from(""),
             Line::from(vec![
-                Span::styled("Size: ", Style::default().add_modifier(Modifier::BOLD)),
+                Span::styled("Size: ", bold),
                 Span::styled(
                     format_size(project.total_size),
-                    Style::default().fg(Color::Yellow),
+                    Style::default().fg(theme::size_color(project.total_size)),
                 ),
             ]),
             Line::from(""),
             Line::from(vec![
-                Span::styled(
-                    "Rebuild Cost: ",
-                    Style::default().add_modifier(Modifier::BOLD),
-                ),
-                Span::raw(match project.strategy_name.as_str() {
+                Span::styled("Rebuild cost: ", bold),
+                dim(match project.strategy_name.as_str() {
                     "Rust" => "~2-5 mins (cargo build)",
                     "Node.js" => "~1-2 mins (npm install)",
                     "Flutter" => "~1-3 mins (flutter pub get)",
@@ -242,157 +439,159 @@ pub fn render_details_pane(f: &mut Frame, area: Rect, state: &AppState) {
                 }),
             ]),
         ]);
-
         lines
     } else {
-        vec![Line::from("No project selected")]
+        vec![Line::from(dim("No project selected"))]
     };
 
-    let paragraph = Paragraph::new(text)
-        .block(
-            Block::default()
-                .title(" Details ")
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Cyan)),
-        )
-        .wrap(Wrap { trim: true });
-
-    f.render_widget(paragraph, area);
+    f.render_widget(
+        Paragraph::new(text)
+            .block(panel("Details"))
+            .wrap(Wrap { trim: true }),
+        area,
+    );
 }
 
 pub fn render_action_pane(f: &mut Frame, area: Rect, state: &AppState) {
-    let total_size = state.total_selected_size();
-    let selected_count = state.selected_count();
+    let key = |k: &str, label: &str| {
+        Line::from(vec![
+            Span::styled(format!("{k:>10}"), Style::default().fg(theme::ACCENT)),
+            dim(format!("  {label}")),
+        ])
+    };
 
-    let text = vec![
-        Line::from(""),
-        Line::from(vec![Span::styled(
-            "Total Reclaimable:",
-            Style::default()
-                .fg(Color::White)
-                .add_modifier(Modifier::BOLD),
-        )]),
-        Line::from(vec![Span::styled(
-            format_size(total_size),
-            Style::default()
-                .fg(Color::Green)
-                .add_modifier(Modifier::BOLD),
-        )]),
-        Line::from(""),
-        Line::from(vec![Span::styled(
-            format!("Selected: {} projects", selected_count),
-            Style::default().fg(Color::Gray),
-        )]),
-        Line::from(""),
-        Line::from(""),
-        Line::from(vec![Span::styled(
-            "Controls:",
-            Style::default().add_modifier(Modifier::BOLD),
-        )]),
-        Line::from("  ↑/↓ or j/k: Navigate"),
-        Line::from("  Space: Toggle selection"),
-        Line::from("  Enter: Clean selected"),
-        Line::from("  s: Toggle sort"),
-        Line::from("  f: Cycle filter"),
-        Line::from("  q/Esc: Quit"),
-    ];
+    let text = if state.drill_active() {
+        vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                "Exploring storage",
+                Style::default()
+                    .fg(theme::BRAND)
+                    .add_modifier(Modifier::BOLD),
+            )),
+            Line::from(""),
+            key("↑/↓", "navigate"),
+            key("→", "open folder"),
+            key("←", "back"),
+            key("q/Esc", "back to projects"),
+        ]
+    } else {
+        let total_size = state.total_selected_size();
+        vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                "Total reclaimable",
+                Style::default()
+                    .fg(theme::BODY)
+                    .add_modifier(Modifier::BOLD),
+            )),
+            Line::from(Span::styled(
+                format_size(total_size),
+                Style::default().fg(theme::OK).add_modifier(Modifier::BOLD),
+            )),
+            Line::from(""),
+            Line::from(dim(format!("{} projects selected", state.selected_count()))),
+            Line::from(""),
+            key("↑/↓", "navigate"),
+            key("→", "open project"),
+            key("Space", "select"),
+            key("Enter", "clean selected"),
+            key("s", "sort"),
+            key("f", "filter"),
+            key("Tab", "list / tree"),
+            key("q/Esc", "quit"),
+        ]
+    };
 
-    let paragraph = Paragraph::new(text)
-        .block(
-            Block::default()
-                .title(" Actions ")
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Cyan)),
-        )
-        .alignment(Alignment::Center);
-
-    f.render_widget(paragraph, area);
+    f.render_widget(
+        Paragraph::new(text)
+            .block(panel("Actions"))
+            .alignment(Alignment::Center),
+        area,
+    );
 }
 
 pub fn render_confirmation_modal(f: &mut Frame, state: &AppState) {
     let selected_count = state.selected_count();
     let total_size = state.total_selected_size();
 
-    if selected_count == 0 {
-        let area = centered_rect(50, 30, f.area());
-
-        let text = vec![
-            Line::from(""),
-            Line::from(vec![Span::styled(
-                "⚠️  No Projects Selected",
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD),
-            )]),
-            Line::from(""),
-            Line::from("Please select at least one project"),
-            Line::from("using the spacebar."),
-            Line::from(""),
-            Line::from(vec![Span::styled(
-                "Press any key to continue...",
-                Style::default().fg(Color::Gray),
-            )]),
-        ];
-
-        let paragraph = Paragraph::new(text)
-            .block(
-                Block::default()
-                    .title(" Warning ")
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Yellow)),
-            )
-            .alignment(Alignment::Center);
-
-        f.render_widget(Clear, area);
-        f.render_widget(paragraph, area);
+    let (area, title, border, text) = if selected_count == 0 {
+        (
+            centered_rect(50, 30, f.area()),
+            "Nothing selected",
+            theme::BRAND,
+            vec![
+                Line::from(""),
+                Line::from(Span::styled(
+                    "No projects selected",
+                    Style::default()
+                        .fg(theme::BRAND)
+                        .add_modifier(Modifier::BOLD),
+                )),
+                Line::from(""),
+                Line::from(dim("Pick at least one with Space.")),
+                Line::from(""),
+                Line::from(dim("Press any key to continue")),
+            ],
+        )
     } else {
-        let area = centered_rect(60, 40, f.area());
+        (
+            centered_rect(60, 40, f.area()),
+            "Confirm",
+            theme::DANGER,
+            vec![
+                Line::from(""),
+                Line::from(Span::styled(
+                    "Confirm deletion",
+                    Style::default()
+                        .fg(theme::DANGER)
+                        .add_modifier(Modifier::BOLD),
+                )),
+                Line::from(""),
+                Line::from(vec![
+                    dim("Delete "),
+                    Span::styled(
+                        format!("{selected_count} projects"),
+                        Style::default().fg(theme::BRIGHT),
+                    ),
+                    dim(" totaling "),
+                    Span::styled(format_size(total_size), Style::default().fg(theme::OK)),
+                ]),
+                Line::from(""),
+                Line::from(Span::styled(
+                    "This cannot be undone.",
+                    Style::default()
+                        .fg(theme::DANGER)
+                        .add_modifier(Modifier::BOLD),
+                )),
+                Line::from(""),
+                Line::from(vec![
+                    dim("Press "),
+                    Span::styled("y", Style::default().fg(theme::OK)),
+                    dim(" to confirm, "),
+                    Span::styled("n", Style::default().fg(theme::DANGER)),
+                    dim(" to cancel"),
+                ]),
+            ],
+        )
+    };
 
-        let text = vec![
-            Line::from(""),
-            Line::from(vec![Span::styled(
-                "⚠️  Confirm Deletion",
-                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-            )]),
-            Line::from(""),
-            Line::from(vec![
-                Span::raw("Delete "),
-                Span::styled(
-                    format!("{} projects", selected_count),
-                    Style::default().fg(Color::Yellow),
-                ),
-                Span::raw(" totaling "),
-                Span::styled(format_size(total_size), Style::default().fg(Color::Green)),
-                Span::raw("?"),
-            ]),
-            Line::from(""),
-            Line::from(vec![Span::styled(
-                "This action cannot be undone!",
-                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-            )]),
-            Line::from(""),
-            Line::from(""),
-            Line::from(vec![
-                Span::styled("Press ", Style::default().fg(Color::Gray)),
-                Span::styled("y", Style::default().fg(Color::Green)),
-                Span::styled(" to confirm, ", Style::default().fg(Color::Gray)),
-                Span::styled("n", Style::default().fg(Color::Red)),
-                Span::styled(" to cancel", Style::default().fg(Color::Gray)),
-            ]),
-        ];
+    let block = Block::default()
+        .title(Span::styled(
+            format!(" {title} "),
+            Style::default().fg(border).add_modifier(Modifier::BOLD),
+        ))
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(border));
 
-        let paragraph = Paragraph::new(text)
-            .block(
-                Block::default()
-                    .title(" Confirmation ")
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Red)),
-            )
-            .alignment(Alignment::Center);
-
-        f.render_widget(Clear, area);
-        f.render_widget(paragraph, area);
-    }
+    f.render_widget(Clear, area);
+    f.render_widget(
+        Paragraph::new(text)
+            .block(block)
+            .alignment(Alignment::Center),
+        area,
+    );
 }
 
 fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
@@ -413,20 +612,4 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
             Constraint::Percentage((100 - percent_x) / 2),
         ])
         .split(popup_layout[1])[1]
-}
-
-fn format_size(bytes: u64) -> String {
-    const KB: u64 = 1024;
-    const MB: u64 = KB * 1024;
-    const GB: u64 = MB * 1024;
-
-    if bytes >= GB {
-        format!("{:.2} GB", bytes as f64 / GB as f64)
-    } else if bytes >= MB {
-        format!("{:.2} MB", bytes as f64 / MB as f64)
-    } else if bytes >= KB {
-        format!("{:.2} KB", bytes as f64 / KB as f64)
-    } else {
-        format!("{} B", bytes)
-    }
 }

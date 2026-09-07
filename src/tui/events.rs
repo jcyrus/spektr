@@ -13,7 +13,8 @@ pub enum AppEvent {
     CycleFilter,
     CloseModal,
     ToggleViewMode,
-    ToggleExpand,
+    MoveRight,
+    MoveLeft,
 }
 
 pub fn poll_event(timeout: Duration) -> Result<Option<AppEvent>> {
@@ -51,9 +52,10 @@ fn handle_key(key: KeyEvent) -> Option<AppEvent> {
         // Modal close
         (KeyCode::Char('n'), _) => Some(AppEvent::CloseModal),
 
-        // Tree View controls
+        // Horizontal navigation: open a project / expand a tree node, and back out.
         (KeyCode::Tab, _) => Some(AppEvent::ToggleViewMode),
-        (KeyCode::Right, _) | (KeyCode::Char('l'), _) => Some(AppEvent::ToggleExpand),
+        (KeyCode::Right, _) | (KeyCode::Char('l'), _) => Some(AppEvent::MoveRight),
+        (KeyCode::Left, _) | (KeyCode::Char('h'), _) => Some(AppEvent::MoveLeft),
 
         _ => None,
     }
