@@ -49,9 +49,12 @@ pub fn run_tui(rx: Receiver<ScanEvent>, scan_path: PathBuf) -> Result<AppState> 
 
         state.poll_drill();
 
-        // The drill pane owns the left column; size its viewport before drawing.
+        // The drill pane owns the left column; size its viewport before
+        // drawing so the "Other" aggregation threshold matches what
+        // render_drill_pane actually fits: 2 border rows + 3 header lines
+        // (name, stats, separator) before the first data row.
         let height = terminal.size()?.height;
-        state.set_drill_viewport(usize::from(height).saturating_sub(4).max(1));
+        state.set_drill_viewport(usize::from(height).saturating_sub(5).max(1));
 
         // Render UI
         terminal.draw(|f| {

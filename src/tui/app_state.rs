@@ -1,4 +1,4 @@
-use crate::analyze::{scan, Browser, DirSizes, Progress};
+use crate::analyze::{scan_targets, Browser, DirSizes, Progress};
 use crate::scanner::CleanableProject;
 use std::collections::HashSet;
 use std::sync::atomic::Ordering;
@@ -8,10 +8,16 @@ use std::thread::JoinHandle;
 /// Drill-down into one project's directory tree, showing where its bytes
 /// actually sit. Sizing a multi-gigabyte project takes a moment, so the walk
 /// runs on its own thread and the pane shows progress until it lands.
+///
+/// Only `targets` -- the paths cleanup would actually delete -- are scanned
+/// and shown, not the whole project. A project's source, `.git`, and other
+/// non-target content are never walked here, so the breakdown always sums to
+/// the same reclaimable total the main list promises.
 pub enum Drill {
     Scanning {
         name: String,
         root: PathBuf,
+        targets: Vec<PathBuf>,
         progress: Arc<Progress>,
         handle: JoinHandle<DirSizes>,
     },
@@ -368,7 +374,7 @@ impl AppState {
         self.visible_projects.iter().map(|p| p.total_size).sum()
     }
 
-    /// Opens the highlighted project and starts sizing its subtree.
+    /// Opens the highlighted project and starts sizing its cleanup targets.
     pub fn enter_drill(&mut self) {
         if self.drill.is_some() {
             return;
@@ -376,7 +382,13 @@ impl AppState {
         let Some(project) = self.current_project() else {
             return;
         };
+        // Nothing to scan (e.g. a project with markers but no target
+        // directories yet) -- there's no breakdown to show.
+        if project.targets.is_empty() {
+            return;
+        }
         let root = project.root_path.clone();
+        let targets = project.targets.clone();
         let name = root
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
@@ -384,12 +396,13 @@ impl AppState {
 
         let progress = Arc::new(Progress::default());
         let scan_progress = Arc::clone(&progress);
-        let scan_root = root.clone();
-        let handle = std::thread::spawn(move || scan(&scan_root, &scan_progress));
+        let scan_targets_list = targets.clone();
+        let handle = std::thread::spawn(move || scan_targets(&scan_targets_list, &scan_progress));
 
         self.drill = Some(Drill::Scanning {
             name,
             root,
+            targets,
             progress,
             handle,
         });
@@ -405,18 +418,29 @@ impl AppState {
             return;
         }
         let Some(Drill::Scanning {
-            name, root, handle, ..
+            name,
+            root,
+            targets,
+            handle,
+            ..
         }) = self.drill.take()
         else {
             return;
         };
         self.drill = handle.join().ok().map(|sizes| Drill::Ready {
             name,
-            browser: Browser::new(root, sizes),
+            browser: Browser::new_scoped(root, sizes, targets),
         });
     }
 
+    /// Leaves the drill-down. If a scan is still running, it's signalled to
+    /// stop rather than left to finish detached in the background -- without
+    /// this, repeatedly opening and backing out of a project would pile up
+    /// concurrent full-tree scans nobody is waiting on.
     pub fn exit_drill(&mut self) {
+        if let Some(Drill::Scanning { progress, .. }) = &self.drill {
+            progress.cancel.store(true, Ordering::Relaxed);
+        }
         self.drill = None;
     }
 

@@ -1,5 +1,5 @@
 use crate::analyze::Row;
-use crate::format::{format_size, truncate};
+use crate::format::{format_size, pad_to_width, truncate};
 use crate::theme;
 use crate::tui::app_state::{AppState, Drill, SortMode, ViewMode};
 use ratatui::{
@@ -94,7 +94,7 @@ pub fn render_project_tree(f: &mut Frame, area: Rect, state: &AppState) {
                         ),
                         Span::raw(format!("{} ", strategy_icon(&project.strategy_name))),
                         Span::styled(
-                            format!("{:<w$}", truncate(&name, name_width), w = name_width),
+                            pad_to_width(&truncate(&name, name_width), name_width),
                             name_style,
                         ),
                         Span::styled(
@@ -315,7 +315,7 @@ pub fn render_drill_pane(f: &mut Frame, area: Rect, state: &AppState) {
                         Style::default().fg(theme::ACCENT),
                     ),
                     Span::styled(
-                        format!("{:<w$}", truncate(&label, name_width), w = name_width),
+                        pad_to_width(&truncate(&label, name_width), name_width),
                         name_style,
                     ),
                     Span::styled(
@@ -531,7 +531,7 @@ pub fn render_confirmation_modal(f: &mut Frame, state: &AppState) {
                 Line::from(""),
                 Line::from(dim("Pick at least one with Space.")),
                 Line::from(""),
-                Line::from(dim("Press any key to continue")),
+                Line::from(dim("Press Enter or Esc to continue")),
             ],
         )
     } else {

@@ -1,5 +1,5 @@
 use anyhow::Result;
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use std::time::Duration;
 
 #[derive(Debug)]
@@ -23,6 +23,13 @@ pub fn poll_event(timeout: Duration) -> Result<Option<AppEvent>> {
     }
 
     if let Event::Key(key) = event::read()? {
+        // Windows reports both press and release; only act on press, or a
+        // single physical key press fires its bound action twice -- e.g. one
+        // tap of -> both entering a drill-down and immediately descending
+        // again inside it.
+        if key.kind != KeyEventKind::Press {
+            return Ok(None);
+        }
         return Ok(handle_key(key));
     }
 

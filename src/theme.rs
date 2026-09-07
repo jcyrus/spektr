@@ -19,10 +19,15 @@ pub const BRIGHT: Color = Color::Rgb(0xFF, 0xF0, 0xFB);
 pub const ACCENT: Color = Color::Rgb(0xFF, 0x48, 0xC4);
 /// Brand / emphasis highlight.
 pub const BRAND: Color = Color::Rgb(0xFF, 0xB0, 0x00);
-/// Destructive actions. Reserved -- nothing else uses this colour.
+/// Destructive actions. Reserved -- nothing else uses this colour, so it
+/// stays an unambiguous signal that something is about to be deleted.
 pub const DANGER: Color = Color::Rgb(0xFF, 0x38, 0x64);
 /// Success and reclaimable totals.
 pub const OK: Color = Color::Rgb(0x37, 0xE5, 0xB6);
+/// A directory that's simply huge, not a warning. Distinct from `DANGER` --
+/// a 20 GB `target` folder isn't a delete confirmation, and coloring it the
+/// same as one would blunt the one colour that's supposed to mean that.
+pub const HUGE: Color = Color::Rgb(0xFF, 0x8A, 0x00);
 
 /// Bar segments, hottest (largest share) to coolest.
 pub const BAR_HOT: Color = Color::Rgb(0xFF, 0x48, 0xC4);
@@ -46,7 +51,7 @@ pub fn size_color(bytes: u64) -> Color {
     const GB: u64 = 1_000_000_000;
     const MB: u64 = 1_000_000;
     if bytes >= 10 * GB {
-        DANGER
+        HUGE
     } else if bytes >= GB {
         ACCENT
     } else if bytes >= 100 * MB {

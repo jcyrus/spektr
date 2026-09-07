@@ -1,5 +1,6 @@
 pub mod strategy;
 
+use crate::format::allocated_size;
 use anyhow::Result;
 use jwalk::WalkDir;
 use rayon::prelude::*;
@@ -151,7 +152,10 @@ impl Scanner {
         targets
     }
 
-    /// Calculates the total size of all targets.
+    /// Calculates the total size of all targets, in bytes actually allocated
+    /// on disk (matching `du`/Finder) rather than logical file length -- the
+    /// same measure `spektr analyze` uses, so the two views of the same
+    /// directory agree.
     ///
     /// The walk is deliberately serial: this runs inside the `into_par_iter` in
     /// `scan`, so the surrounding Rayon pool already provides the parallelism.
@@ -171,7 +175,7 @@ impl Scanner {
             for entry in walker.into_iter().flatten() {
                 if entry.file_type().is_file() {
                     if let Ok(metadata) = entry.metadata() {
-                        total += metadata.len();
+                        total += allocated_size(&metadata);
                     }
                 }
             }
@@ -196,7 +200,9 @@ mod tests {
     use std::sync::mpsc;
 
     /// Creates `count` Node projects, each holding one file of `file_size`
-    /// bytes inside `node_modules`. Returns the total reclaimable byte count.
+    /// bytes inside `node_modules`. Returns the total *logical* byte count --
+    /// a lower bound, since allocated size rounds each file up to whole disk
+    /// blocks.
     fn node_projects(dir: &Path, count: usize, file_size: usize) -> u64 {
         for i in 0..count {
             let root = dir.join(format!("app{i}"));
@@ -223,15 +229,21 @@ mod tests {
     /// so the reported total lands far under the real size and differs between
     /// runs. Enough projects to force contention is what makes this show up.
     #[test]
-    fn reports_exact_total_size_under_pool_contention() {
+    fn reports_full_total_size_under_pool_contention() {
         let tmp = tempfile::tempdir().unwrap();
-        let expected = node_projects(tmp.path(), 128, 1024);
+        let logical = node_projects(tmp.path(), 128, 1024);
 
         let projects = scan(tmp.path());
 
         assert_eq!(projects.len(), 128, "every project should be discovered");
         let total: u64 = projects.iter().map(|p| p.total_size).sum();
-        assert_eq!(total, expected, "reported total must match bytes on disk");
+        // Allocated size rounds up to whole disk blocks, so it is at least the
+        // logical byte count written -- pool contention would instead drop it
+        // to far below this floor.
+        assert!(
+            total >= logical,
+            "reported total must cover every byte on disk: got {total}, expected at least {logical}"
+        );
     }
 
     /// A project inside another project's target directory is an artifact, not

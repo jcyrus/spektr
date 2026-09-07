@@ -1,7 +1,7 @@
 //! Terminal UI for the storage explorer.
 
 use super::{scan, Browser, Progress, Row};
-use crate::format::{format_size, truncate};
+use crate::format::{format_size, pad_to_width, truncate};
 use crate::theme;
 use anyhow::{Context, Result};
 use crossterm::{
@@ -55,14 +55,18 @@ fn browse<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>, root: PathBu
 
     // Scanning screen, until the walk completes or the user bails out.
     let mut tick = 0usize;
-    let mut cancelled = false;
     while !progress.done.load(Ordering::Acquire) {
         terminal.draw(|f| render_scanning(f, &root, &progress, tick))?;
         tick = tick.wrapping_add(1);
         if let Some(key) = poll_key(Duration::from_millis(80))? {
             if matches!(key, Key::Quit) {
-                cancelled = true;
-                break;
+                // Signal the walk to stop and return immediately, rather than
+                // blocking on `handle.join()` until a large tree finishes
+                // sizing anyway -- the whole point of cancelling. The thread
+                // keeps running briefly on its own, sees the flag, and exits;
+                // its result is simply never collected.
+                progress.cancel.store(true, Ordering::Relaxed);
+                return Ok(());
             }
         }
     }
@@ -70,9 +74,6 @@ fn browse<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>, root: PathBu
     let sizes = handle
         .join()
         .map_err(|_| anyhow::anyhow!("Scanner thread panicked"))?;
-    if cancelled {
-        return Ok(());
-    }
 
     let mut browser = Browser::new(root, sizes);
     loop {
@@ -283,7 +284,7 @@ fn render_rows(f: &mut Frame, area: Rect, browser: &Browser, total: u64) {
                     Style::default().fg(theme::ACCENT),
                 ),
                 Span::styled(
-                    format!("{:<w$}", truncate(&name, name_width), w = name_width),
+                    pad_to_width(&truncate(&name, name_width), name_width),
                     name_style,
                 ),
                 Span::styled(
