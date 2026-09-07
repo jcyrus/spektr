@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Called by release.yml so a tag can't publish binaries that fail these checks.
+  workflow_call:
+
+# release.yml calls this workflow with contents: write so it can publish
+# assets; without an explicit block here, that write scope would leak into
+# every job below, including test/lint steps that run repository-controlled
+# code. Read-only is all any job here needs.
+permissions:
+  contents: read
+
+# A newer push to the same branch supersedes an in-flight run. Tags each get
+# their own group, so a release verification is never cancelled by another tag.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  lint:
+    name: Format & lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The token checkout leaves in local git config by default would
+          # otherwise be readable by any step that follows, including build
+          # and test commands running repository-controlled code.
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+  test:
+    name: Test ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The token checkout leaves in local git config by default would
+          # otherwise be readable by any step that follows, including build
+          # and test commands running repository-controlled code.
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build --all-targets
+
+      - name: Test
+        run: cargo test -- --nocapture

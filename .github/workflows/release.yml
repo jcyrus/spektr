@@ -9,8 +9,16 @@ permissions:
   contents: write
 
 jobs:
+  # Reuses the CI workflow so a tag runs exactly the same fmt, clippy, build
+  # and cross-platform test suite that gates main. Nothing is published unless
+  # it passes.
+  verify:
+    name: Verify
+    uses: ./.github/workflows/ci.yml
+
   build-and-release:
     name: Build ${{ matrix.target }}
+    needs: verify
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false

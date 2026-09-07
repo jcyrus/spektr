@@ -7,7 +7,8 @@
 **Mission Control for your Disk Space.** _A blazing-fast, TUI-based artifact cleaner for developers._
 
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![Build Status](https://github.com/jcyrus/spektr/actions/workflows/release.yml/badge.svg)](https://github.com/jcyrus/spektr/actions/workflows/release.yml)
+[![CI](https://github.com/jcyrus/spektr/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/jcyrus/spektr/actions/workflows/ci.yml)
+[![Release](https://github.com/jcyrus/spektr/actions/workflows/release.yml/badge.svg)](https://github.com/jcyrus/spektr/actions/workflows/release.yml)
 [![Version](https://img.shields.io/github/v/release/jcyrus/spektr)](https://github.com/jcyrus/spektr/releases)
 ![Platform](https://img.shields.io/badge/platform-macos%20|%20linux%20|%20windows-lightgrey)
 
@@ -107,16 +108,46 @@ spektr --mode scan ~/code/work
 
 ```
 
+### Storage Explorer
+
+Browse a directory tree by size, largest first, and drill into whatever is heavy:
+
+```bash
+spektr analyze
+spektr analyze ~/code
+```
+
+Percentages are relative to the directory you are currently in, so they rebase
+as you descend. Sizes are the space actually allocated on disk, matching `du`
+and Finder rather than the smaller logical byte count.
+
+| Key | Action |
+| --- | --- |
+| `↑` / `↓` | Move between entries |
+| `→` | Open the highlighted directory (or expand `Other`) |
+| `←` | Back to the parent directory |
+| `q` / `Esc` | Quit |
+
+The explorer is read-only: it never deletes anything.
+
 ## ⌨️ Keyboard Shortcuts
 
 | Key         | Action                                          |
 | ----------- | ----------------------------------------------- |
 | `↑` / `↓`   | Navigate project list                           |
+| `→`         | **Open project** — break its size down by folder |
+| `←`         | Back out of a folder, then back to the list     |
 | `Space`     | Toggle selection for deletion                   |
 | `Enter`     | **Trigger Cleanup** (Opens Confirmation)        |
 | `f`         | **Filter** (Cycle: All → Node → Rust → Flutter) |
-| `s`         | **Sort** (Cycle: Path → Size)                   |
-| `q` / `Esc` | Quit Application                                |
+| `s`         | **Sort** (Cycle: Size ↓ → Size ↑ → Name)        |
+| `Tab`       | Switch between list and tree view               |
+| `q` / `Esc` | Quit (inside a project, returns to the list)    |
+
+Projects are listed largest first, each with a bar showing its share of the
+total reclaimable space. Press `→` on any project to see which folders inside
+it hold the bytes — the same bars, rebased to that folder — and keep pressing
+`→` to go deeper. This view is read-only; nothing is deleted while browsing.
 
 ## 🎯 Supported Stacks
 

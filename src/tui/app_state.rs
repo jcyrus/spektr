@@ -1,5 +1,31 @@
+use crate::analyze::{scan_targets, Browser, DirSizes, Progress};
 use crate::scanner::CleanableProject;
 use std::collections::HashSet;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
+use std::thread::JoinHandle;
+
+/// Drill-down into one project's directory tree, showing where its bytes
+/// actually sit. Sizing a multi-gigabyte project takes a moment, so the walk
+/// runs on its own thread and the pane shows progress until it lands.
+///
+/// Only `targets` -- the paths cleanup would actually delete -- are scanned
+/// and shown, not the whole project. A project's source, `.git`, and other
+/// non-target content are never walked here, so the breakdown always sums to
+/// the same reclaimable total the main list promises.
+pub enum Drill {
+    Scanning {
+        name: String,
+        root: PathBuf,
+        targets: Vec<PathBuf>,
+        progress: Arc<Progress>,
+        handle: JoinHandle<DirSizes>,
+    },
+    Ready {
+        name: String,
+        browser: Browser,
+    },
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SortMode {
@@ -40,7 +66,7 @@ impl FilterMode {
     }
 }
 
-use crate::tui::tree::{TreeNode, build_tree, flatten_tree};
+use crate::tui::tree::{build_tree, flatten_tree, TreeNode};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ViewMode {
@@ -56,20 +82,20 @@ pub struct AppState {
 
     /// All discovered projects
     all_projects: Vec<CleanableProject>,
-    
+
     /// Filtered and sorted projects (displayed)
     visible_projects: Vec<CleanableProject>,
-    
+
     /// Currently selected index in visible_projects (or flattened tree)
     pub selected_index: usize,
-    
+
     /// Set of selected project indices (for multi-selection in List mode)
     /// In Tree mode, the TreeNode itself holds Checked state
     selected_projects: HashSet<usize>,
-    
+
     /// Current sort mode
     pub sort_mode: SortMode,
-    
+
     /// Current filter mode
     pub filter_mode: FilterMode,
 
@@ -78,21 +104,24 @@ pub struct AppState {
 
     /// Root nodes of the project tree
     pub tree_roots: Vec<TreeNode>,
-    
+
     /// Show confirmation modal
     pub show_confirmation: bool,
-    
+
     /// User confirmed deletion (set when 'y' is pressed)
     pub deletion_confirmed: bool,
-    
+
     /// Scan is still running
     pub scanning: bool,
 
     /// Current path being scanned
     pub scanning_path: String,
-    
+
     /// Spinner animation index
     pub spinner_index: usize,
+
+    /// Active drill-down, if the user has opened a project.
+    pub drill: Option<Drill>,
 }
 
 impl AppState {
@@ -112,6 +141,7 @@ impl AppState {
             scanning: true,
             scanning_path: String::new(),
             spinner_index: 0,
+            drill: None,
         }
     }
 
@@ -164,8 +194,6 @@ impl AppState {
     pub fn visible_projects(&self) -> &[CleanableProject] {
         &self.visible_projects
     }
-
-
 
     pub fn visible_count(&self) -> usize {
         match self.view_mode {
@@ -222,7 +250,8 @@ impl AppState {
 
     pub fn total_selected_size(&self) -> u64 {
         match self.view_mode {
-            ViewMode::List => self.selected_projects
+            ViewMode::List => self
+                .selected_projects
                 .iter()
                 .filter_map(|&idx| self.visible_projects.get(idx))
                 .map(|p| p.total_size)
@@ -236,7 +265,8 @@ impl AppState {
 
     pub fn get_selected_projects(&self) -> Vec<CleanableProject> {
         match self.view_mode {
-            ViewMode::List => self.selected_projects
+            ViewMode::List => self
+                .selected_projects
                 .iter()
                 .filter_map(|&idx| self.visible_projects.get(idx))
                 .cloned()
@@ -313,8 +343,8 @@ impl AppState {
                     }
                 }
                 // Take top 100 for performance (list only)
-                // filtered.truncate(100); 
-                
+                // filtered.truncate(100);
+
                 self.visible_projects = filtered;
             }
             ViewMode::Tree => {
@@ -334,12 +364,100 @@ impl AppState {
         }
     }
 
+    pub fn drill_active(&self) -> bool {
+        self.drill.is_some()
+    }
+
+    /// Total size of everything currently listed, used as the denominator for
+    /// each project's share of the reclaimable total.
+    pub fn visible_total_size(&self) -> u64 {
+        self.visible_projects.iter().map(|p| p.total_size).sum()
+    }
+
+    /// Opens the highlighted project and starts sizing its cleanup targets.
+    pub fn enter_drill(&mut self) {
+        if self.drill.is_some() {
+            return;
+        }
+        let Some(project) = self.current_project() else {
+            return;
+        };
+        // Nothing to scan (e.g. a project with markers but no target
+        // directories yet) -- there's no breakdown to show.
+        if project.targets.is_empty() {
+            return;
+        }
+        let root = project.root_path.clone();
+        let targets = project.targets.clone();
+        let name = root
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| root.display().to_string());
+
+        let progress = Arc::new(Progress::default());
+        let scan_progress = Arc::clone(&progress);
+        let scan_targets_list = targets.clone();
+        let handle = std::thread::spawn(move || scan_targets(&scan_targets_list, &scan_progress));
+
+        self.drill = Some(Drill::Scanning {
+            name,
+            root,
+            targets,
+            progress,
+            handle,
+        });
+    }
+
+    /// Promotes a finished scan into a browsable tree. Called once per frame.
+    pub fn poll_drill(&mut self) {
+        let ready = matches!(
+            &self.drill,
+            Some(Drill::Scanning { progress, .. }) if progress.done.load(Ordering::Acquire)
+        );
+        if !ready {
+            return;
+        }
+        let Some(Drill::Scanning {
+            name,
+            root,
+            targets,
+            handle,
+            ..
+        }) = self.drill.take()
+        else {
+            return;
+        };
+        self.drill = handle.join().ok().map(|sizes| Drill::Ready {
+            name,
+            browser: Browser::new_scoped(root, sizes, targets),
+        });
+    }
+
+    /// Leaves the drill-down. If a scan is still running, it's signalled to
+    /// stop rather than left to finish detached in the background -- without
+    /// this, repeatedly opening and backing out of a project would pile up
+    /// concurrent full-tree scans nobody is waiting on.
+    pub fn exit_drill(&mut self) {
+        if let Some(Drill::Scanning { progress, .. }) = &self.drill {
+            progress.cancel.store(true, Ordering::Relaxed);
+        }
+        self.drill = None;
+    }
+
+    /// The drill pane decides how many rows fit before the tail is collapsed.
+    pub fn set_drill_viewport(&mut self, rows: usize) {
+        if let Some(Drill::Ready { browser, .. }) = &mut self.drill {
+            browser.visible_limit = rows.max(1);
+        }
+    }
+
     pub fn current_project(&self) -> Option<&CleanableProject> {
         match self.view_mode {
             ViewMode::List => self.visible_projects.get(self.selected_index),
             ViewMode::Tree => {
-                 let flat = self.get_flat_tree();
-                 flat.get(self.selected_index).and_then(|node| node.node.project.as_ref())
+                let flat = self.get_flat_tree();
+                flat.get(self.selected_index)
+                    .and_then(|node| node.node.project.as_ref())
             }
         }
     }
@@ -347,7 +465,11 @@ impl AppState {
 
 // Helper functions for tree traversal
 
-fn find_node_at_mut<'a>(node: &'a mut TreeNode, current_idx: &mut usize, target_idx: usize) -> Option<&'a mut TreeNode> {
+fn find_node_at_mut<'a>(
+    node: &'a mut TreeNode,
+    current_idx: &mut usize,
+    target_idx: usize,
+) -> Option<&'a mut TreeNode> {
     if *current_idx == target_idx {
         return Some(node);
     }
@@ -378,10 +500,10 @@ fn sum_checked_size(nodes: &[TreeNode]) -> u64 {
     let mut total = 0;
     for node in nodes {
         if node.project.is_some() && node.checked {
-             // Sum size only for checked projects (folders have None project)
-             if let Some(p) = &node.project {
-                 total += p.total_size;
-             }
+            // Sum size only for checked projects (folders have None project)
+            if let Some(p) = &node.project {
+                total += p.total_size;
+            }
         }
         total += sum_checked_size(&node.children);
     }

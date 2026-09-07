@@ -1,5 +1,5 @@
 use anyhow::Result;
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use std::time::Duration;
 
 #[derive(Debug)]
@@ -13,7 +13,8 @@ pub enum AppEvent {
     CycleFilter,
     CloseModal,
     ToggleViewMode,
-    ToggleExpand,
+    MoveRight,
+    MoveLeft,
 }
 
 pub fn poll_event(timeout: Duration) -> Result<Option<AppEvent>> {
@@ -22,6 +23,13 @@ pub fn poll_event(timeout: Duration) -> Result<Option<AppEvent>> {
     }
 
     if let Event::Key(key) = event::read()? {
+        // Windows reports both press and release; only act on press, or a
+        // single physical key press fires its bound action twice -- e.g. one
+        // tap of -> both entering a drill-down and immediately descending
+        // again inside it.
+        if key.kind != KeyEventKind::Press {
+            return Ok(None);
+        }
         return Ok(handle_key(key));
     }
 
@@ -51,9 +59,10 @@ fn handle_key(key: KeyEvent) -> Option<AppEvent> {
         // Modal close
         (KeyCode::Char('n'), _) => Some(AppEvent::CloseModal),
 
-        // Tree View controls
+        // Horizontal navigation: open a project / expand a tree node, and back out.
         (KeyCode::Tab, _) => Some(AppEvent::ToggleViewMode),
-        (KeyCode::Right, _) | (KeyCode::Char('l'), _) => Some(AppEvent::ToggleExpand),
+        (KeyCode::Right, _) | (KeyCode::Char('l'), _) => Some(AppEvent::MoveRight),
+        (KeyCode::Left, _) | (KeyCode::Char('h'), _) => Some(AppEvent::MoveLeft),
 
         _ => None,
     }
